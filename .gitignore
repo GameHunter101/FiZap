@@ -6,3 +6,5 @@ server/.vscode
 client/.vscode
 target
 server/.env
+server/dist/*
+client/dist/*
