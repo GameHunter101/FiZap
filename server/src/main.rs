@@ -1,25 +1,36 @@
 use std::env;
-use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use axum::body::{boxed, Body};
-use axum::http::{Response, StatusCode};
-use axum::response::Html;
-use axum::{response::IntoResponse, routing::get, Router};
+use auth::generate_token;
+use axum::extract::State;
+use axum::Extension;
+use axum::{
+    extract::Json,
+    handler::Handler,
+    http::{Response, StatusCode},
+    response::{Html, IntoResponse},
+    routing::get,
+    routing::post,
+    Router,
+};
+use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 use dotenv::dotenv;
-use mongodb::bson::doc;
 use mongodb::{
+    bson::doc,
     options::{ClientOptions, ResolverConfig},
-    Client,
+    Client, Collection,
 };
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tower::{ServiceBuilder, ServiceExt};
-use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
+
+mod auth;
+mod middleware;
 
 #[derive(Parser, Debug)]
 #[clap(name = "server", about = "A file hosting server")]
@@ -37,6 +48,34 @@ struct Opt {
     static_dir: String,
 }
 
+struct Config {
+    development: bool,
+    mongodb_uri: String,
+    jwt_secret: String,
+    jwt_expiration: i64,
+}
+
+impl Config {
+    fn init() -> Self {
+        let development = env::var("DEVELOPMENT")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse()
+            .unwrap_or(false);
+        let mongodb_uri = env::var("MONGODB_URI").expect("No mongodb uri found");
+        let jwt_secret = env::var("JWT_SECRET").expect("No json web token secret found");
+        let jwt_expiration = env::var("JWT_EXPIRATION")
+            .expect("No json web token expiration found")
+            .parse::<i64>()
+            .unwrap();
+        Config {
+            development,
+            mongodb_uri,
+            jwt_secret,
+            jwt_expiration,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -49,10 +88,14 @@ async fn main() {
 
     tracing_subscriber::fmt::init();
 
+    let config = Config::init();
+
     let app = Router::new()
         .route("/", get(root))
         .route("/login", get(login))
-        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()));
+        .route("/signup", post(signup))
+        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
+        .with_state(Arc::new(config));
 
     let addr = SocketAddr::from((
         IpAddr::from_str(&opt.addr).unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)),
@@ -66,12 +109,8 @@ async fn main() {
         .unwrap();
 }
 
-async fn root() -> impl IntoResponse {
-    let development = env::var("DEVELOPMENT")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse()
-        .unwrap_or(false);
-    if development {
+async fn root(State(state): State<Arc<Config>>) -> impl IntoResponse {
+    if state.development {
         let file = tokio::fs::read_to_string("./assets/index.html")
             .await
             .unwrap();
@@ -81,11 +120,39 @@ async fn root() -> impl IntoResponse {
     }
 }
 
-async fn login() -> impl IntoResponse {
-    let client_uri = env::var("MONGODB_URI").expect("No MongoDb URI found");
+#[derive(Deserialize)]
+struct LoginInfo {
+    email: String,
+    password: String,
+}
 
+#[derive(Deserialize, Serialize)]
+struct AccountDetails {
+    name: String,
+    email: String,
+    password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ReturnedData {
+    id: String,
+    name: String,
+    email: String,
+    jwt: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum LoginErrors {
+    InvalidPassword,
+    UserNotFound,
+}
+
+async fn login(
+    State(state): State<Arc<Config>>,
+    Json(payload): Json<LoginInfo>,
+) -> Result<Json<ReturnedData>, Json<LoginErrors>> {
     let client_options =
-        ClientOptions::parse_with_resolver_config(&client_uri, ResolverConfig::cloudflare())
+        ClientOptions::parse_with_resolver_config(&state.mongodb_uri, ResolverConfig::cloudflare())
             .await
             .unwrap();
     let client = Client::with_options(client_options).unwrap();
@@ -94,10 +161,67 @@ async fn login() -> impl IntoResponse {
         .database("MuZap")
         .collection::<mongodb::bson::Document>("users");
 
-    let user = users
-        .find_one(doc! {"email": "liorscarmeli@gmail.com"}, None)
+    if let Ok(Some(user)) = users.find_one(doc! {"email": payload.email}, None).await {
+        let user_password = user.get_str("password").unwrap();
+        if verify(payload.password, user_password).unwrap() {
+            let user_id = user.get_object_id("_id").unwrap().to_string();
+
+            if !fs::try_exists(format!("./files/{}", user_id))
+                .await
+                .unwrap()
+            {
+                fs::create_dir(format!("./files/{}", user_id))
+                    .await
+                    .unwrap();
+            }
+
+            return Ok(Json(ReturnedData {
+                id: user_id.clone(),
+                email: user.get_str("email").unwrap().to_owned(),
+                name: user.get_str("name").unwrap().to_owned(),
+                jwt: generate_token(user_id, state.jwt_secret.clone(), state.jwt_expiration),
+            }));
+        } else {
+            return Err(Json(LoginErrors::InvalidPassword));
+        }
+    } else {
+        return Err(Json(LoginErrors::UserNotFound));
+    }
+}
+
+async fn signup(
+    State(state): State<Arc<Config>>,
+    Json(payload): Json<AccountDetails>,
+) -> Result<Json<ReturnedData>, Json<LoginErrors>> {
+    let client_options =
+        ClientOptions::parse_with_resolver_config(&state.mongodb_uri, ResolverConfig::cloudflare())
+            .await
+            .unwrap();
+    let client = Client::with_options(client_options).unwrap();
+
+    let users = client
+        .database("MuZap")
+        .collection::<mongodb::bson::Document>("users");
+
+    let user_params = AccountDetails {
+        name: payload.name.clone(),
+        email: payload.email.clone(),
+        password: hash(payload.password, DEFAULT_COST).unwrap(),
+    };
+
+    let new_user = mongodb::bson::to_document(&user_params).unwrap();
+
+    let new_entry = users.insert_one(new_user, None).await.unwrap();
+    let entry_id = new_entry.inserted_id.as_object_id().unwrap().to_string();
+    fs::create_dir(format!("./files/{}", entry_id))
         .await
-        .unwrap()
-        .expect("User not found");
-    format!("{user}")
+        .unwrap();
+
+    Ok(Json(ReturnedData {
+        id: entry_id.clone(),
+        name: payload.name,
+        email: payload.email,
+        jwt: generate_token(entry_id, state.jwt_secret.clone(), state.jwt_expiration),
+    }))
+
 }
