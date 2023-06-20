@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    id: String,
-    exp: usize,
+    pub id: String,
+    pub exp: usize,
 }
 
 pub fn generate_token(id: String, secret_key: String, expiry_seconds: i64) -> String {

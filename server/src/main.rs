@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use auth::generate_token;
 use axum::extract::State;
+use axum::middleware::from_fn_with_state;
 use axum::Extension;
 use axum::{
     extract::Json,
-    handler::Handler,
     http::{Response, StatusCode},
     response::{Html, IntoResponse},
     routing::get,
@@ -16,18 +16,19 @@ use axum::{
     Router,
 };
 use bcrypt::{hash, verify, DEFAULT_COST};
-use chrono::{TimeZone, Utc};
 use clap::Parser;
 use dotenv::dotenv;
 use mongodb::{
     bson::doc,
     options::{ClientOptions, ResolverConfig},
-    Client, Collection,
+    Client,
 };
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tower::{ServiceBuilder, ServiceExt};
+use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
+
+use crate::middleware::authentication_middleware;
 
 mod auth;
 mod middleware;
@@ -48,7 +49,8 @@ struct Opt {
     static_dir: String,
 }
 
-struct Config {
+#[derive(Clone)]
+pub struct Config {
     development: bool,
     mongodb_uri: String,
     jwt_secret: String,
@@ -94,6 +96,15 @@ async fn main() {
         .route("/", get(root))
         .route("/login", get(login))
         .route("/signup", post(signup))
+        .nest(
+            "/api",
+            Router::new()
+                .route("/test", get(handler))
+                .route_layer(from_fn_with_state(
+                    config.clone(),
+                    authentication_middleware,
+                )),
+        )
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(Arc::new(config));
 
@@ -142,15 +153,33 @@ struct ReturnedData {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum LoginErrors {
-    InvalidPassword,
-    UserNotFound,
+pub struct RequestError {
+    message: String,
+    status_code: u16,
+}
+
+impl RequestError {
+    pub fn new(message: &str, status_code: StatusCode) -> Self {
+        Self {
+            message: message.to_owned(),
+            status_code: status_code.as_u16(),
+        }
+    }
+
+    pub fn make_response(&self) -> impl IntoResponse {
+        let response = Response::builder()
+            .status(self.status_code)
+            .body(Json(self).into_response().into_body())
+            .unwrap();
+
+        response
+    }
 }
 
 async fn login(
     State(state): State<Arc<Config>>,
     Json(payload): Json<LoginInfo>,
-) -> Result<Json<ReturnedData>, Json<LoginErrors>> {
+) -> Result<Json<ReturnedData>, Json<RequestError>> {
     let client_options =
         ClientOptions::parse_with_resolver_config(&state.mongodb_uri, ResolverConfig::cloudflare())
             .await
@@ -182,17 +211,23 @@ async fn login(
                 jwt: generate_token(user_id, state.jwt_secret.clone(), state.jwt_expiration),
             }));
         } else {
-            return Err(Json(LoginErrors::InvalidPassword));
+            return Err(Json(RequestError::new(
+                "Invalid password",
+                StatusCode::UNAUTHORIZED,
+            )));
         }
     } else {
-        return Err(Json(LoginErrors::UserNotFound));
+        return Err(Json(RequestError::new(
+            "User not found",
+            StatusCode::NOT_FOUND,
+        )));
     }
 }
 
 async fn signup(
     State(state): State<Arc<Config>>,
     Json(payload): Json<AccountDetails>,
-) -> Result<Json<ReturnedData>, Json<LoginErrors>> {
+) -> Result<Json<ReturnedData>, Json<RequestError>> {
     let client_options =
         ClientOptions::parse_with_resolver_config(&state.mongodb_uri, ResolverConfig::cloudflare())
             .await
@@ -223,5 +258,8 @@ async fn signup(
         email: payload.email,
         jwt: generate_token(entry_id, state.jwt_secret.clone(), state.jwt_expiration),
     }))
+}
 
+async fn handler(Extension(data): Extension<String>) -> impl IntoResponse {
+    format!("Hi, {}", data)
 }
