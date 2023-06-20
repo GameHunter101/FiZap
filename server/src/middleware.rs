@@ -3,22 +3,24 @@ use axum::{
     headers::authorization::{Authorization, Bearer},
     http::{Request, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
-    Json,
+    response::Response,
 };
 use jsonwebtoken::{decode, DecodingKey, Validation};
 
-use crate::{auth::Claims, Config, RequestError};
+use crate::{
+    routes::auth::{Claims, RequestError},
+    AppState,
+};
 
 pub async fn authentication_middleware<B>(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-    State(state): State<Config>,
+    State(state): State<AppState>,
     mut request: Request<B>,
     next: Next<B>,
 ) -> Response {
     if let Ok(token_data) = decode::<Claims>(
         auth.token(),
-        &DecodingKey::from_secret(state.jwt_secret.as_ref()),
+        &DecodingKey::from_secret(state.config.jwt_secret.as_ref()),
         &Validation::default(),
     ) {
         let id = token_data.claims.id;
@@ -27,15 +29,9 @@ pub async fn authentication_middleware<B>(
 
         response
     } else {
-        let error_response = Json(RequestError::new(
-            "Invalid Json Web Token",
-            StatusCode::UNAUTHORIZED,
-        ))
-        .into_response();
+        let error_response =
+            RequestError::new("Invalid Json Web Token", StatusCode::UNAUTHORIZED).make_response();
 
-        return Response::builder()
-            .status(StatusCode::FORBIDDEN)
-            .body(error_response.into_body())
-            .unwrap();
+        error_response
     }
 }
