@@ -1,0 +1,3 @@
+[submodule "client/tailwind-yew-builder"]
+	path = client/tailwind-yew-builder
+	url = https://github.com/matiu2/tailwind-yew-builder.git

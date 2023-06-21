@@ -8,3 +8,4 @@ target
 server/.env
 server/dist/*
 client/dist/*
+client/tailwind.css

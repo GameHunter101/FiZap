@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use gloo_net::http::Request;
-use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use yew_router::{
     history::{AnyHistory, History, MemoryHistory},
@@ -10,7 +8,7 @@ use yew_router::{
 
 #[derive(Clone, Routable, PartialEq)]
 enum Route {
-    #[at("/test")]
+    #[at("/")]
     Home,
 }
 
@@ -22,7 +20,7 @@ pub struct ServerAppProps {
 
 fn switch(routes: Route) -> Html {
     match routes {
-        Route::Home => html! {<h1>{"Hello frontend"}</h1>},
+        Route::Home => html! {<p class={classes!("bg-black","text-red-500")}>{"Test!"}</p>},
     }
 }
 

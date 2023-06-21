@@ -2,12 +2,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FiZap</title>
+    <style>
+        body {
+            background-color: rgb(69, 56, 83);
+        }
+    </style>
+    <link rel="stylesheet" href="/tailwind-d857fa0f2843b070.css">
 
-<link rel="preload" href="/client-6bcab386130d8d6b_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
-<link rel="modulepreload" href="/client-6bcab386130d8d6b.js"></head>
+<link rel="preload" href="/client-262508d7c41da09c_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
+<link rel="modulepreload" href="/client-262508d7c41da09c.js"></head>
 
 <body>
     Loading...
 
 
-<script type="module">import init from '/client-6bcab386130d8d6b.js';init('/client-6bcab386130d8d6b_bg.wasm');</script></body></html>
+<script type="module">import init from '/client-262508d7c41da09c.js';init('/client-262508d7c41da09c_bg.wasm');</script><script>(function () {
+    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var url = protocol + '//' + window.location.host + '/_trunk/ws';
+    var poll_interval = 5000;
+    var reload_upon_connect = () => {
+        window.setTimeout(
+            () => {
+                // when we successfully reconnect, we'll force a
+                // reload (since we presumably lost connection to
+                // trunk due to it being killed, so it will have
+                // rebuilt on restart)
+                var ws = new WebSocket(url);
+                ws.onopen = () => window.location.reload();
+                ws.onclose = reload_upon_connect;
+            },
+            poll_interval);
+    };
+
+    var ws = new WebSocket(url);
+    ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.reload) {
+            window.location.reload();
+        }
+    };
+    ws.onclose = reload_upon_connect;
+})()
+</script></body></html>

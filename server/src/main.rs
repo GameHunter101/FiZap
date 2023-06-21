@@ -6,30 +6,26 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::body::StreamBody;
-use axum::error_handling::HandleError;
-use axum::extract::{Query, State};
-use axum::http::{Request, StatusCode};
-use axum::middleware::from_fn_with_state;
 use axum::{
-    body::Body,
+    body::{Body, StreamBody},
+    extract::{Query, State},
+    http::Request,
+    middleware::from_fn_with_state,
     response::{Html, IntoResponse},
-    routing::get,
-    routing::post,
-    Router,
+    routing::{get, post},
+    Extension, Router,
 };
-use axum::{routing, Extension};
 use clap::Parser;
 use client::{ServerApp, ServerAppProps};
 use dotenv::dotenv;
 use futures::stream::{self, StreamExt};
-use mongodb::bson::Document;
-use mongodb::options::{ClientOptions, ResolverConfig};
-use mongodb::{Client, Collection};
-use tower::{ServiceBuilder, ServiceExt};
-use tower_http::services::ServeDir;
+use mongodb::{
+    bson::Document,
+    options::{ClientOptions, ResolverConfig},
+    Client, Collection,
+};
+use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use yew::platform::Runtime;
 
 use crate::middleware::authentication_middleware;
 use crate::routes::auth::{login, signup};
@@ -135,7 +131,8 @@ async fn main() {
     ));
 
     let app = Router::new()
-        .route("/", get(root))
+        // .fallback(render)
+        .route("/", get(render))
         .nest(
             "/api",
             Router::new()
@@ -144,7 +141,6 @@ async fn main() {
                 .route("/test", get(handler))
                 .route_layer(from_fn_with_state(state.clone(), authentication_middleware)),
         )
-        .fallback(render)
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(Arc::new(state));
 
@@ -164,13 +160,20 @@ async fn render(
         tokio::fs::read_to_string(PathBuf::from(&state.opt.static_dir).join("index.html"))
             .await
             .expect("Failed to read index.html");
-    let index_html_split = index_html_full.split("body").collect::<Vec<_>>();
-    let mut index_html_before = index_html_split[0].to_owned();
-    index_html_before.push_str("body>");
+    // let index_html_split = index_html_full.split("body").collect::<Vec<_>>();
+    // let mut index_html_before = index_html_split[0].to_owned();
+    // index_html_before.push_str("body>");
+    let (index_html_before, index_html_after) = index_html_full.split_once("<body>").unwrap();
+    let mut index_html_before = index_html_before.to_owned();
+    index_html_before.push_str("<body>");
 
-    let mut index_html_after = "</body".to_owned();
-    index_html_after.push_str(index_html_split[2]);
-    
+    let body_end = index_html_after.split_once("<script").unwrap().1;
+    let mut index_html_after = "<script".to_owned();
+    index_html_after.push_str(body_end);
+
+    // let mut index_html_after = "</body".to_owned();
+    // index_html_after.push_str(index_html_split[2]);
+
     let url = url.uri().to_string();
 
     let renderer = yew::ServerRenderer::<ServerApp>::with_props(move || ServerAppProps {
