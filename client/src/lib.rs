@@ -6,6 +6,12 @@ use yew_router::{
     prelude::*,
 };
 
+use pages::dashboard::Dashboard;
+
+mod pages{
+    pub mod dashboard;
+}
+
 #[derive(Clone, Routable, PartialEq)]
 enum Route {
     #[at("/")]
@@ -20,7 +26,7 @@ pub struct ServerAppProps {
 
 fn switch(routes: Route) -> Html {
     match routes {
-        Route::Home => html! {<p class={classes!("bg-black","text-red-500")}>{"Test!"}</p>},
+        Route::Home => html!{<Dashboard />},
     }
 }
 
@@ -38,8 +44,10 @@ pub fn server_app(props: &ServerAppProps) -> Html {
     let history = AnyHistory::from(MemoryHistory::new());
     history.push(&*props.url);
     html! {
+    <>
         <Router history={history}>
             <Switch<Route> render={switch} />
         </Router>
+    </>
     }
 }

@@ -1,3 +1,8 @@
 [build]
 target = "index.html"
 dist = "./dist"
+
+[[hooks]]
+stage = "build"
+command = "cmd"
+command_arguments = ["/C", "npx tailwindcss -i ./styles/input.css -o ./styles/output.css"]
