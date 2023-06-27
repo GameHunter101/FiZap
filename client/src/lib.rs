@@ -12,16 +12,23 @@ mod pages{
     pub mod dashboard;
 }
 
+mod components {
+    pub mod file;
+    pub mod header;
+    pub mod sidebar;
+    pub mod sidebar_button;
+    pub mod file_manager;
+}
+
 #[derive(Clone, Routable, PartialEq)]
 enum Route {
     #[at("/")]
     Home,
 }
 
-#[derive(Properties, PartialEq, Eq, Debug)]
+#[derive(Properties, PartialEq, Debug)]
 pub struct ServerAppProps {
     pub url: AttrValue,
-    pub queries: HashMap<String, String>,
 }
 
 fn switch(routes: Route) -> Html {

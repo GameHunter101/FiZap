@@ -2,43 +2,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FiZap</title>
-    <link rel="stylesheet" href="/output-ce6d0290d09fa34d.css">
+    <link rel="stylesheet" href="./dist/output-e8fcde175334f324.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
     <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@100;400;500&amp;display=swap" rel="stylesheet">
 
-<link rel="preload" href="/client-f1d6ab17123a61d3_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
-<link rel="modulepreload" href="/client-f1d6ab17123a61d3.js"></head>
+<link rel="preload" href="./dist/client-ddd5c7f583e695b9_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
+<link rel="modulepreload" href="./dist/client-ddd5c7f583e695b9.js"></head>
 
 <body>
     Loading...
 
 
-<script type="module">import init from '/client-f1d6ab17123a61d3.js';init('/client-f1d6ab17123a61d3_bg.wasm');</script><script>(function () {
-    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var url = protocol + '//' + window.location.host + '/_trunk/ws';
-    var poll_interval = 5000;
-    var reload_upon_connect = () => {
-        window.setTimeout(
-            () => {
-                // when we successfully reconnect, we'll force a
-                // reload (since we presumably lost connection to
-                // trunk due to it being killed, so it will have
-                // rebuilt on restart)
-                var ws = new WebSocket(url);
-                ws.onopen = () => window.location.reload();
-                ws.onclose = reload_upon_connect;
-            },
-            poll_interval);
-    };
-
-    var ws = new WebSocket(url);
-    ws.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
-        if (msg.reload) {
-            window.location.reload();
-        }
-    };
-    ws.onclose = reload_upon_connect;
-})()
-</script></body></html>
+<script type="module">import init from './dist/client-ddd5c7f583e695b9.js';init('./dist/client-ddd5c7f583e695b9_bg.wasm');</script></body></html>

@@ -1,38 +1,25 @@
-use std::collections::HashMap;
-use std::convert::Infallible;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 
-use axum::{
-    body::{Body, StreamBody},
-    extract::{Query, State},
-    http::Request,
-    middleware::from_fn_with_state,
-    response::{Html, IntoResponse},
-    routing::{get, post},
-    Extension, Router,
-};
+use actix_web::dev::{Service, ServiceRequest};
+use actix_web::{get, post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder};
 use clap::Parser;
 use client::{ServerApp, ServerAppProps};
 use dotenv::dotenv;
-use futures::stream::{self, StreamExt};
+use futures_util::FutureExt;
+use middleware::{SayHiFactory, SayHiMiddleware};
 use mongodb::{
     bson::Document,
     options::{ClientOptions, ResolverConfig},
     Client, Collection,
 };
-use tower::ServiceBuilder;
-use tower_http::trace::TraceLayer;
+use tokio::fs;
+use yew::ServerRenderer;
 
-use crate::middleware::authentication_middleware;
-use crate::routes::auth::{login, signup};
-
-mod routes {
+/* mod routes {
     pub mod auth;
-}
+} */
 mod middleware;
 
 #[derive(Parser, Debug, Clone)]
@@ -110,8 +97,30 @@ impl AppState {
     }
 }
 
-#[tokio::main]
-async fn main() {
+#[get("/{tail:.*}")]
+async fn app(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
+    let index_html_full =
+        fs::read_to_string(&format!("{}/index.html", data.opt.static_dir)).await?;
+
+    let url = req.uri().to_string();
+
+    let content =
+        ServerRenderer::<ServerApp>::with_props(move || ServerAppProps { url: url.into() })
+            .render()
+            .await;
+
+    Ok(HttpResponse::Ok()
+        .content_type("text/html; charset=utf-12")
+        .body(index_html_full.replace("<body>", &format!("<body>{}", content))))
+}
+
+#[get("/")]
+async fn api() -> impl Responder {
+    HttpResponse::Ok().body("you reached the api")
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
     let state = AppState::init().await;
@@ -130,76 +139,17 @@ async fn main() {
         state.opt.port,
     ));
 
-    let app = Router::new()
-        // .fallback(render)
-        .route("/", get(render))
-        .nest(
-            "/api",
-            Router::new()
-                .route("/login", get(login))
-                .route("/signup", post(signup))
-                .route("/test", get(handler))
-                .route_layer(from_fn_with_state(state.clone(), authentication_middleware)),
-        )
-        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
-        .with_state(Arc::new(state));
-
-    log::info!("Listening on http://{}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-}
-
-async fn render(
-    Query(queries): Query<HashMap<String, String>>,
-    State(state): State<Arc<AppState>>,
-    url: Request<Body>,
-) -> impl IntoResponse {
-    let index_html_full =
-        tokio::fs::read_to_string(PathBuf::from(&state.opt.static_dir).join("index.html"))
-            .await
-            .expect("Failed to read index.html");
-    // let index_html_split = index_html_full.split("body").collect::<Vec<_>>();
-    // let mut index_html_before = index_html_split[0].to_owned();
-    // index_html_before.push_str("body>");
-    let (index_html_before, index_html_after) = index_html_full.split_once("<body>").unwrap();
-    let mut index_html_before = index_html_before.to_owned();
-    index_html_before.push_str("<body>");
-
-    let body_end = index_html_after.split_once("<script").unwrap().1;
-    let mut index_html_after = "<script".to_owned();
-    index_html_after.push_str(body_end);
-
-    // let mut index_html_after = "</body".to_owned();
-    // index_html_after.push_str(index_html_split[2]);
-
-    let url = url.uri().to_string();
-
-    let renderer = yew::ServerRenderer::<ServerApp>::with_props(move || ServerAppProps {
-        url: url.into(),
-        queries,
-    });
-
-    StreamBody::new(
-        stream::once(async move { index_html_before })
-            .chain(renderer.render_stream())
-            .chain(stream::once(async move { index_html_after }))
-            .map(Result::<_, Infallible>::Ok),
-    )
-}
-
-async fn root(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    if state.config.development {
-        let file = tokio::fs::read_to_string("./assets/index.html")
-            .await
-            .unwrap();
-        return Html(file);
-    } else {
-        return Html(include_str!("../assets/index.html").to_string());
-    }
-}
-
-async fn handler(Extension(data): Extension<String>) -> impl IntoResponse {
-    format!("Hi, {}", data)
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .service(web::scope("/api").wrap(SayHiFactory::new()).service(api))
+            .service(actix_files::Files::new(
+                &state.opt.static_dir.replace(".", ""),
+                &state.opt.static_dir,
+            ))
+            .service(app)
+    })
+    .bind(addr)?
+    .run()
+    .await
 }

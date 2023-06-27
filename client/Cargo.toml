@@ -8,8 +8,12 @@ edition = "2021"
 [dependencies]
 console_error_panic_hook = "0.1.7"
 gloo-net = "0.3.0"
+gloo-console = "0.2.3"
 log = "0.4.19"
 wasm-bindgen-futures = "0.4.37"
+wasm-bindgen = "0.2.87"
 wasm-logger = "0.2.0"
 yew = { version = "0.20.0", features = ["csr", "hydration"] }
 yew-router = "0.17.0"
+yew_icons = {version = "0.7.2", features = ["bootstrap", "BootstrapFileEarmark", "BootstrapFileEarmarkImage"]}
+web-sys = "0.3.64"
