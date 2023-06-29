@@ -8,18 +8,21 @@ use clap::Parser;
 use client::{ServerApp, ServerAppProps};
 use dotenv::dotenv;
 use futures_util::FutureExt;
-use middleware::{SayHiFactory, SayHiMiddleware};
+use middleware::{AuthenticationFactory, AuthenticationMiddleware};
 use mongodb::{
     bson::Document,
     options::{ClientOptions, ResolverConfig},
     Client, Collection,
 };
+use routes::auth::login;
 use tokio::fs;
 use yew::ServerRenderer;
 
-/* mod routes {
+use crate::middleware::AuthenticationExtractor;
+
+mod routes {
     pub mod auth;
-} */
+}
 mod middleware;
 
 #[derive(Parser, Debug, Clone)]
@@ -115,8 +118,8 @@ async fn app(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse
 }
 
 #[get("/")]
-async fn api() -> impl Responder {
-    HttpResponse::Ok().body("you reached the api")
+async fn api(auth: AuthenticationExtractor) -> impl Responder {
+    HttpResponse::Ok().body(format!("you reached the api, {}", *auth))
 }
 
 #[actix_web::main]
@@ -142,7 +145,8 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(state.clone()))
-            .service(web::scope("/api").wrap(SayHiFactory::new()).service(api))
+            // .wrap(AuthenticationFactory::new())
+            .service(web::scope("/api").service(api).service(login))
             .service(actix_files::Files::new(
                 &state.opt.static_dir.replace(".", ""),
                 &state.opt.static_dir,

@@ -1,10 +1,14 @@
-use std::future::{ready, Ready};
+use std::{
+    future::{ready, Ready},
+    rc::Rc,
+    sync::Mutex,
+};
 
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error,
+    error, Error, FromRequest, HttpMessage, HttpResponse,
 };
-use futures_util::future::LocalBoxFuture;
+use futures_util::{future::LocalBoxFuture, FutureExt};
 use jsonwebtoken::{decode, DecodingKey, Validation};
 
 use crate::AppState;
@@ -13,41 +17,43 @@ use crate::AppState;
 // 1. Middleware initialization, middleware factory gets called with
 //    next service in chain as parameter.
 // 2. Middleware's call method gets called with normal request.
-pub struct SayHiFactory;
+pub struct AuthenticationFactory;
 
-impl SayHiFactory {
+impl AuthenticationFactory {
     pub fn new() -> Self {
-        SayHiFactory {}
+        AuthenticationFactory {}
     }
 }
 
 // Middleware factory is `Transform` trait
 // `S` - type of the next service
 // `B` - type of response's body
-impl<S, B> Transform<S, ServiceRequest> for SayHiFactory
+impl<S, B> Transform<S, ServiceRequest> for AuthenticationFactory
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
     type InitError = ();
-    type Transform = SayHiMiddleware<S>;
+    type Transform = AuthenticationMiddleware<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(SayHiMiddleware { service }))
+        ready(Ok(AuthenticationMiddleware {
+            service: Rc::new(service),
+        }))
     }
 }
 
-pub struct SayHiMiddleware<S> {
-    service: S,
+pub struct AuthenticationMiddleware<S> {
+    service: Rc<S>,
 }
 
-impl<S, B> Service<ServiceRequest> for SayHiMiddleware<S>
+impl<S, B> Service<ServiceRequest> for AuthenticationMiddleware<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {
@@ -58,7 +64,7 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        let bearer_token: Option<String> = match req.headers().get("Authorization") {
+        let token = match req.headers().get("Authorization") {
             Some(auth) => {
                 let auth_str = auth.to_str().unwrap();
                 if auth_str.contains("Bearer ") {
@@ -75,20 +81,48 @@ where
             None => None,
         };
 
-        let fut = self.service.call(req);
-
-        Box::pin(async move {
-            if let Some(token) = bearer_token {
-                let res = fut.await?;
-    
+        let srv = self.service.clone();
+        async move {
+            if let Some(token) = token {
                 println!("Hi from response");
-                Ok(res)
+                req.extensions_mut()
+                    .insert::<String>(token);
             } else {
-                let err = Error::from("test".into());
                 println!("Uh oh, bad authorization");
-                Err(err)
+                req.extensions_mut()
+                    .insert::<String>("Not authorized".to_string());
             }
-        })
+            let res = srv.call(req).await?;
+            Ok(res)
+        }
+        .boxed_local()
+    }
+}
+
+pub struct AuthenticationExtractor(String);
+
+impl FromRequest for AuthenticationExtractor {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(
+        req: &actix_web::HttpRequest,
+        payload: &mut actix_web::dev::Payload,
+    ) -> Self::Future {
+        let value = req.extensions().get::<String>().cloned();
+        let result = match value {
+            Some(v) => Ok(AuthenticationExtractor(v)),
+            None => Err(error::ErrorUnauthorized("Invalid token")),
+        };
+        ready(result)
+    }
+}
+
+impl std::ops::Deref  for AuthenticationExtractor {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

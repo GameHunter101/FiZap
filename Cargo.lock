@@ -2150,6 +2150,7 @@ dependencies = [
  "chrono",
  "clap",
  "client",
+ "derive_more",
  "dotenv",
  "futures",
  "futures-util",

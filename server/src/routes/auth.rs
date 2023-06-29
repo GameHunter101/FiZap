@@ -1,7 +1,13 @@
 use std::sync::Arc;
 
+use actix_web::{
+    error, get,
+    http::{header::ContentType, StatusCode},
+    post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
+};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::Utc;
+use derive_more::{Display, Error};
 use http_body::combinators::UnsyncBoxBody;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use mongodb::{
@@ -26,27 +32,23 @@ pub struct LoginInfo {
     password: String,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct RequestError {
-    message: String,
-    status_code: u16,
+#[derive(Debug, Display, Error)]
+pub enum RequestError {
+    #[display(fmt = "Invalid credentials")]
+    LoginError,
 }
 
-impl RequestError {
-    pub fn new(message: &str, status_code: StatusCode) -> Self {
-        Self {
-            message: message.to_owned(),
-            status_code: status_code.as_u16(),
-        }
+impl error::ResponseError for RequestError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(self.status_code())
+            .insert_header(ContentType::html())
+            .body(self.to_string())
     }
 
-    pub fn make_response(&self) -> Response<UnsyncBoxBody<axum::body::Bytes, axum::Error>> {
-        let response = Response::builder()
-            .status(self.status_code)
-            .body(Json(self.message.clone()).into_response().into_body())
-            .unwrap();
-
-        response
+    fn status_code(&self) -> StatusCode {
+        match *self {
+            RequestError::LoginError => StatusCode::UNAUTHORIZED,
+        }
     }
 }
 
@@ -82,17 +84,18 @@ pub fn generate_token(id: String, secret_key: String, expiry_seconds: i64) -> St
     .unwrap()
 }
 
+#[get("/login")]
 pub async fn login(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<LoginInfo>,
-) -> Result<Json<ReturnedData>, Json<RequestError>> {
-    if let Ok(Some(user)) = state
+    body: web::Json<LoginInfo>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse, RequestError> {
+    if let Ok(Some(user)) = data
         .user_collection
-        .find_one(doc! {"email": payload.email}, None)
+        .find_one(doc! {"email": &body.email}, None)
         .await
     {
         let user_password = user.get_str("password").unwrap();
-        if verify(payload.password, user_password).unwrap() {
+        if verify(&body.password, user_password).unwrap() {
             let user_id = user.get_object_id("_id").unwrap().to_string();
 
             if !fs::try_exists(format!("./files/{}", user_id))
@@ -104,31 +107,27 @@ pub async fn login(
                     .unwrap();
             }
 
-            return Ok(Json(ReturnedData {
+            let data = ReturnedData {
                 id: user_id.clone(),
                 email: user.get_str("email").unwrap().to_owned(),
                 name: user.get_str("name").unwrap().to_owned(),
                 jwt: generate_token(
                     user_id,
-                    state.config.jwt_secret.clone(),
-                    state.config.jwt_expiration,
+                    data.config.jwt_secret.clone(),
+                    data.config.jwt_expiration,
                 ),
-            }));
+            };
+
+            Ok(HttpResponse::build(StatusCode::OK).json(data))
         } else {
-            return Err(Json(RequestError::new(
-                "Invalid password",
-                StatusCode::UNAUTHORIZED,
-            )));
+            Err(RequestError::LoginError)
         }
     } else {
-        return Err(Json(RequestError::new(
-            "User not found",
-            StatusCode::NOT_FOUND,
-        )));
+        Err(RequestError::LoginError)
     }
 }
 
-pub async fn signup(
+/* pub async fn signup(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AccountDetails>,
 ) -> Result<Json<ReturnedData>, Json<RequestError>> {
@@ -168,4 +167,4 @@ pub async fn signup(
             state.config.jwt_expiration,
         ),
     }))
-}
+} */
