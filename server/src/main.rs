@@ -2,13 +2,11 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
-use actix_web::dev::{Service, ServiceRequest};
-use actix_web::{get, post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{get, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder};
 use clap::Parser;
 use client::{ServerApp, ServerAppProps};
 use dotenv::dotenv;
-use futures_util::FutureExt;
-use middleware::{AuthenticationFactory, AuthenticationMiddleware};
+use middleware::AuthenticationFactory;
 use mongodb::{
     bson::Document,
     options::{ClientOptions, ResolverConfig},
@@ -41,9 +39,8 @@ pub struct Opt {
     static_dir: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Config {
-    development: bool,
     mongodb_uri: String,
     jwt_secret: String,
     jwt_expiration: i64,
@@ -51,10 +48,6 @@ pub struct Config {
 
 impl Config {
     fn init() -> Self {
-        let development = env::var("DEVELOPMENT")
-            .unwrap_or_else(|_| "false".to_string())
-            .parse()
-            .unwrap_or(false);
         let mongodb_uri = env::var("MONGODB_URI").expect("No mongodb uri found");
         let jwt_secret = env::var("JWT_SECRET").expect("No json web token secret found");
         let jwt_expiration = env::var("JWT_EXPIRATION")
@@ -62,7 +55,6 @@ impl Config {
             .parse::<i64>()
             .unwrap();
         Config {
-            development,
             mongodb_uri,
             jwt_secret,
             jwt_expiration,
@@ -70,7 +62,7 @@ impl Config {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     pub config: Config,
     pub user_collection: Collection<Document>,
@@ -145,8 +137,13 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(state.clone()))
-            // .wrap(AuthenticationFactory::new())
-            .service(web::scope("/api").service(api).service(login))
+            .service(
+                web::scope("/api").service(login).service(
+                    web::scope("/test")
+                        .wrap(AuthenticationFactory::new())
+                        .service(api),
+                ),
+            )
             .service(actix_files::Files::new(
                 &state.opt.static_dir.replace(".", ""),
                 &state.opt.static_dir,

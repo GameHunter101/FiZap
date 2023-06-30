@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use actix_web::{
     error, get,
     http::{header::ContentType, StatusCode},
@@ -8,7 +6,6 @@ use actix_web::{
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::Utc;
 use derive_more::{Display, Error};
-use http_body::combinators::UnsyncBoxBody;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use mongodb::{
     bson::doc,
@@ -33,12 +30,14 @@ pub struct LoginInfo {
 }
 
 #[derive(Debug, Display, Error)]
-pub enum RequestError {
+pub enum CustomError {
     #[display(fmt = "Invalid credentials")]
     LoginError,
+    #[display(fmt = "Invalid JWT")]
+    JWTError,
 }
 
-impl error::ResponseError for RequestError {
+impl error::ResponseError for CustomError {
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.status_code())
             .insert_header(ContentType::html())
@@ -47,7 +46,8 @@ impl error::ResponseError for RequestError {
 
     fn status_code(&self) -> StatusCode {
         match *self {
-            RequestError::LoginError => StatusCode::UNAUTHORIZED,
+            CustomError::LoginError => StatusCode::UNAUTHORIZED,
+            CustomError::JWTError => StatusCode::UNAUTHORIZED,
         }
     }
 }
@@ -88,7 +88,7 @@ pub fn generate_token(id: String, secret_key: String, expiry_seconds: i64) -> St
 pub async fn login(
     body: web::Json<LoginInfo>,
     data: web::Data<AppState>,
-) -> Result<HttpResponse, RequestError> {
+) -> Result<HttpResponse, CustomError> {
     if let Ok(Some(user)) = data
         .user_collection
         .find_one(doc! {"email": &body.email}, None)
@@ -120,10 +120,10 @@ pub async fn login(
 
             Ok(HttpResponse::build(StatusCode::OK).json(data))
         } else {
-            Err(RequestError::LoginError)
+            Err(CustomError::LoginError)
         }
     } else {
-        Err(RequestError::LoginError)
+        Err(CustomError::LoginError)
     }
 }
 
