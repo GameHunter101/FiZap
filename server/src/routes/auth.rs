@@ -1,11 +1,6 @@
-use actix_web::{
-    error, get,
-    http::{header::ContentType, StatusCode},
-    post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
-};
+use actix_web::{get, http::StatusCode, post, web, HttpResponse};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::Utc;
-use derive_more::{Display, Error};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use mongodb::{
     bson::doc,
@@ -15,7 +10,7 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
-use crate::AppState;
+use crate::{utils::CustomError, AppState};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -27,29 +22,6 @@ pub struct Claims {
 pub struct LoginInfo {
     email: String,
     password: String,
-}
-
-#[derive(Debug, Display, Error)]
-pub enum CustomError {
-    #[display(fmt = "Invalid credentials")]
-    LoginError,
-    #[display(fmt = "Invalid JWT")]
-    JWTError,
-}
-
-impl error::ResponseError for CustomError {
-    fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status_code())
-            .insert_header(ContentType::html())
-            .body(self.to_string())
-    }
-
-    fn status_code(&self) -> StatusCode {
-        match *self {
-            CustomError::LoginError => StatusCode::UNAUTHORIZED,
-            CustomError::JWTError => StatusCode::UNAUTHORIZED,
-        }
-    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -127,12 +99,13 @@ pub async fn login(
     }
 }
 
-/* pub async fn signup(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<AccountDetails>,
-) -> Result<Json<ReturnedData>, Json<RequestError>> {
+#[post("/signup")]
+pub async fn signup(
+    data: web::Data<AppState>,
+    body: web::Json<AccountDetails>,
+) -> Result<HttpResponse, CustomError> {
     let client_options = ClientOptions::parse_with_resolver_config(
-        &state.config.mongodb_uri,
+        &data.config.mongodb_uri,
         ResolverConfig::cloudflare(),
     )
     .await
@@ -144,9 +117,9 @@ pub async fn login(
         .collection::<mongodb::bson::Document>("users");
 
     let user_params = AccountDetails {
-        name: payload.name.clone(),
-        email: payload.email.clone(),
-        password: hash(payload.password, DEFAULT_COST).unwrap(),
+        name: body.name.clone(),
+        email: body.email.clone(),
+        password: hash(body.password.clone(), DEFAULT_COST).unwrap(),
     };
 
     let new_user = mongodb::bson::to_document(&user_params).unwrap();
@@ -157,14 +130,16 @@ pub async fn login(
         .await
         .unwrap();
 
-    Ok(Json(ReturnedData {
+    let data = ReturnedData {
         id: entry_id.clone(),
-        name: payload.name,
-        email: payload.email,
+        name: body.name.clone(),
+        email: body.email.clone(),
         jwt: generate_token(
             entry_id,
-            state.config.jwt_secret.clone(),
-            state.config.jwt_expiration,
+            data.config.jwt_secret.clone(),
+            data.config.jwt_expiration,
         ),
-    }))
-} */
+    };
+
+    Ok(HttpResponse::build(StatusCode::OK).json(data))
+}

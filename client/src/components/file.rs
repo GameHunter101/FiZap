@@ -1,4 +1,5 @@
 use yew::prelude::*;
+use web_sys::{Element, IntersectionObserver, IntersectionObserverEntry};
 
 #[derive(Properties, PartialEq)]
 pub struct FileProps {

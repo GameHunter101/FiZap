@@ -1,18 +1,12 @@
-use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
 use actix_web::{get, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder};
-use clap::Parser;
 use client::{ServerApp, ServerAppProps};
 use dotenv::dotenv;
 use middleware::AuthenticationFactory;
-use mongodb::{
-    bson::Document,
-    options::{ClientOptions, ResolverConfig},
-    Client, Collection,
-};
-use routes::auth::login;
+use routes::auth::{login, signup};
+use routes::files::get_file_count;
 use tokio::fs;
 use yew::ServerRenderer;
 
@@ -20,77 +14,12 @@ use crate::middleware::AuthenticationExtractor;
 
 mod routes {
     pub mod auth;
+    pub mod files;
 }
 mod middleware;
+mod utils;
 
-#[derive(Parser, Debug, Clone)]
-#[clap(name = "server", about = "A file hosting server")]
-pub struct Opt {
-    #[clap(short = 'l', long = "log", default_value = "debug")]
-    log_level: String,
-
-    #[clap(short = 'a', long = "addr", default_value = "127.0.0.1")]
-    addr: String,
-
-    #[clap(short = 'p', long = "port", default_value = "8080")]
-    port: u16,
-
-    #[clap(long = "static-dir", default_value = "./dist")]
-    static_dir: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct Config {
-    mongodb_uri: String,
-    jwt_secret: String,
-    jwt_expiration: i64,
-}
-
-impl Config {
-    fn init() -> Self {
-        let mongodb_uri = env::var("MONGODB_URI").expect("No mongodb uri found");
-        let jwt_secret = env::var("JWT_SECRET").expect("No json web token secret found");
-        let jwt_expiration = env::var("JWT_EXPIRATION")
-            .expect("No json web token expiration found")
-            .parse::<i64>()
-            .unwrap();
-        Config {
-            mongodb_uri,
-            jwt_secret,
-            jwt_expiration,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct AppState {
-    pub config: Config,
-    pub user_collection: Collection<Document>,
-    pub opt: Opt,
-}
-
-impl AppState {
-    async fn init() -> AppState {
-        let config = Config::init();
-        let client_options = ClientOptions::parse_with_resolver_config(
-            &config.mongodb_uri,
-            ResolverConfig::cloudflare(),
-        )
-        .await
-        .unwrap();
-        let client = Client::with_options(client_options).unwrap();
-
-        let user_collection = client
-            .database("MuZap")
-            .collection::<mongodb::bson::Document>("users");
-        let opt = Opt::parse();
-        AppState {
-            config,
-            user_collection,
-            opt,
-        }
-    }
-}
+use utils::AppState;
 
 #[get("/{tail:.*}")]
 async fn app(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
@@ -137,12 +66,12 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(state.clone()))
+            .service(web::scope("/account").service(login).service(signup))
             .service(
-                web::scope("/api").service(login).service(
-                    web::scope("/test")
-                        .wrap(AuthenticationFactory::new())
-                        .service(api),
-                ),
+                web::scope("/api")
+                    .wrap(AuthenticationFactory::new())
+                    .service(get_file_count)
+                    .service(web::scope("/test").service(api)),
             )
             .service(actix_files::Files::new(
                 &state.opt.static_dir.replace(".", ""),

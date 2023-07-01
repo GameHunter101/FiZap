@@ -11,10 +11,7 @@ use actix_web::{
 use futures_util::{future::LocalBoxFuture, FutureExt};
 use jsonwebtoken::{decode, DecodingKey, Validation};
 
-use crate::{
-    routes::auth::{Claims, CustomError},
-    AppState,
-};
+use crate::{routes::auth::Claims, utils::CustomError, AppState};
 
 #[derive(Debug, Clone)]
 pub struct AuthenticationData {
@@ -121,10 +118,7 @@ impl FromRequest for AuthenticationExtractor {
     type Error = CustomError;
     type Future = Ready<Result<Self, Self::Error>>;
 
-    fn from_request(
-        req: &actix_web::HttpRequest,
-        _: &mut actix_web::dev::Payload,
-    ) -> Self::Future {
+    fn from_request(req: &actix_web::HttpRequest, _: &mut actix_web::dev::Payload) -> Self::Future {
         let value = req.extensions().get::<AuthenticationData>().cloned();
         let result = match value {
             Some(v) => {
