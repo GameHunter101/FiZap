@@ -1,4 +1,4 @@
-use actix_web::{get, http::StatusCode, post, web, HttpResponse};
+use actix_web::{http::StatusCode, post, web, HttpResponse};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::Utc;
 use jsonwebtoken::{encode, EncodingKey, Header};
@@ -56,7 +56,7 @@ pub fn generate_token(id: String, secret_key: String, expiry_seconds: i64) -> St
     .unwrap()
 }
 
-#[get("/login")]
+#[post("/login")]
 pub async fn login(
     body: web::Json<LoginInfo>,
     data: web::Data<AppState>,

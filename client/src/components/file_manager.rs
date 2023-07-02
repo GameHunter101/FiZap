@@ -2,8 +2,9 @@
 use reqwasm::http::Request;
 use wasm_bindgen::JsValue;
 use yew::prelude::*;
+use yewdux::prelude::use_store;
 
-use crate::{components::file::*, pages::dashboard::SearchContext};
+use crate::{components::file::*, pages::dashboard::SearchContext, store::Store};
 
 pub async fn send_request(url: &str, body: Option<JsValue>) -> Result<String, String> {
     let token = "some token";
@@ -39,6 +40,7 @@ pub async fn send_request(url: &str, body: Option<JsValue>) -> Result<String, St
 
 #[function_component(FileManager)]
 pub fn file_manager() -> Html {
+    let (state, _) = use_store::<Store>();
     let search_ctx = use_context::<SearchContext>().unwrap();
     let query = search_ctx.query.to_owned();
     let item_count = use_state(|| 0);
@@ -53,8 +55,17 @@ pub fn file_manager() -> Html {
         || ()
     });
     let file_names = (0..*item_count)
-        .map(|i| i.to_string())
-        .filter(|name| name.contains(&query))
+        .map(|i| match state.loaded_files.get(&i) {
+            Some(name) => name.to_string(),
+            None => String::new(),
+        })
+        .filter(|name| {
+            if name.len() > 0 {
+                name.contains(&query)
+            } else {
+                false
+            }
+        })
         .collect::<Vec<String>>();
     let files = file_names
         .iter()

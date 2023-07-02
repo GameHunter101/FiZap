@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use yew::prelude::*;
 use yew_router::{
     history::{AnyHistory, History, MemoryHistory},
@@ -8,17 +6,19 @@ use yew_router::{
 
 use pages::dashboard::Dashboard;
 
-mod pages{
+mod pages {
     pub mod dashboard;
 }
 
 mod components {
     pub mod file;
+    pub mod file_manager;
     pub mod header;
     pub mod sidebar;
     pub mod sidebar_button;
-    pub mod file_manager;
 }
+
+mod store;
 
 #[derive(Clone, Routable, PartialEq)]
 enum Route {
@@ -33,7 +33,7 @@ pub struct ServerAppProps {
 
 fn switch(routes: Route) -> Html {
     match routes {
-        Route::Home => html!{<Dashboard />},
+        Route::Home => html! {<Dashboard />},
     }
 }
 

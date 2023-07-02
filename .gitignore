@@ -9,3 +9,4 @@ server/.env
 server/dist/*
 client/dist/*
 client/tailwind.css
+server/files/*
