@@ -6,7 +6,7 @@ use client::{ServerApp, ServerAppProps};
 use dotenv::dotenv;
 use middleware::AuthenticationFactory;
 use routes::auth::{login, signup};
-use routes::files::get_file_count;
+use routes::files::{get_file_count, get_files_indices};
 use tokio::fs;
 use yew::ServerRenderer;
 
@@ -71,6 +71,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .wrap(AuthenticationFactory::new())
                     .service(get_file_count)
+                    .service(get_files_indices)
                     .service(web::scope("/test").service(api)),
             )
             .service(actix_files::Files::new(

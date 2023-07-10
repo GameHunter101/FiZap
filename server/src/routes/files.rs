@@ -1,6 +1,6 @@
 use actix_web::{get, http::StatusCode, post, web, HttpResponse};
 use serde::Deserialize;
-use tokio::fs;
+use tokio::fs::{self, DirEntry};
 
 use crate::{middleware::AuthenticationExtractor, utils::CustomError};
 
@@ -23,8 +23,8 @@ pub async fn get_file_count(auth: AuthenticationExtractor) -> Result<HttpRespons
 
 #[derive(Debug, Deserialize)]
 pub struct GetFiles {
-    indices: Vec<i32>,
-    count: i32,
+    indices: Vec<u32>,
+    count: u32,
 }
 
 #[post("/indices")]
@@ -37,26 +37,38 @@ pub async fn get_files_indices(
     if body.count > 0 {
         match dir {
             Ok(mut entries) => {
-                let mut prev_index = 0;
-                let mut files: Vec<(String, String)> = Vec::with_capacity(body.indices.len());
-                for file_index in body.indices.iter() {
-                    for _ in prev_index..*file_index {
-                        let next_entry = entries.next_entry().await.unwrap().unwrap();
-                        let file_name = next_entry.file_name().to_string_lossy().to_string();
-                        let file_type = {
-                            let file_path = next_entry.path();
-                            if let Some(extension) = file_path.extension() {
+                let mut indices_clone = body.indices.clone();
+
+                let sorted_indices = indices_clone.as_mut_slice();
+                sorted_indices.sort();
+                let highest_index = *sorted_indices.last().unwrap();
+                let mut files: Vec<DirEntry> = vec![];
+                if highest_index == 0 {
+                    files.push(entries.next_entry().await.unwrap().unwrap());
+                } else {
+                    for _ in 0..highest_index as usize {
+                        files.push(entries.next_entry().await.unwrap().unwrap());
+                    }
+                }
+                let filtered_files: Vec<(String, String)> = files
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| indices_clone.contains(&(*i as u32)))
+                    .map(|(_, entry)| {
+                        let entry_name = entry.file_name().to_string_lossy().to_string();
+                        let entry_type = {
+                            let path = entry.path();
+                            if let Some(extension) = path.extension() {
                                 extension.to_string_lossy().to_string()
                             } else {
                                 String::new()
                             }
                         };
+                        (entry_name, entry_type)
+                    })
+                    .collect();
 
-                        files[(*file_index) as usize] = (file_name, file_type);
-                    }
-                    prev_index = *file_index;
-                }
-                return Ok(HttpResponse::build(StatusCode::OK).json(files));
+                return Ok(HttpResponse::build(StatusCode::OK).json(filtered_files));
             }
             Err(_) => Err(CustomError::MissingPath),
         }

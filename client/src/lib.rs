@@ -19,6 +19,7 @@ mod components {
 }
 
 mod store;
+mod utils;
 
 #[derive(Clone, Routable, PartialEq)]
 enum Route {

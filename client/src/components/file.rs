@@ -1,9 +1,13 @@
 use gloo_console::log;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
+use wasm_bindgen_futures::spawn_local;
 use web_sys::{
     HtmlDivElement, IntersectionObserver, IntersectionObserverEntry, IntersectionObserverInit,
 };
 use yew::prelude::*;
+use yewdux::prelude::use_store;
+
+use crate::store::{load_item, Store};
 
 #[derive(Properties, PartialEq)]
 pub struct FileProps {
@@ -12,13 +16,16 @@ pub struct FileProps {
 
 #[function_component(File)]
 pub fn file(props: &FileProps) -> Html {
+    let (_, dispatch) = use_store::<Store>();
     let name = props.name.clone();
     let div_ref = use_node_ref();
+    let item_name = use_state(|| String::new());
+    let name_state = item_name.clone();
 
     {
         let div = div_ref.clone();
         use_effect(move || {
-            let mut options = IntersectionObserverInit::new();
+            let options = IntersectionObserverInit::new();
 
             let div = div.cast::<HtmlDivElement>().expect("Div not set");
 
@@ -28,10 +35,18 @@ pub fn file(props: &FileProps) -> Html {
                         let entry = IntersectionObserverEntry::from(entry);
                         let is_intersecting = entry.is_intersecting();
 
-                        if is_intersecting {
-                            // log::info!("hi");
-                            log!(format!("hi {}",name.clone()));
-                        }
+                        let clone = name.clone();
+                        let dispatch_clone = dispatch.clone();
+                        spawn_local(async move {
+                            if is_intersecting {
+                                let res =
+                                    load_item(clone.parse::<u32>().unwrap(), dispatch_clone).await;
+                                match res {
+                                    Ok(res) => name_state.set(res.0),
+                                    Err(_) => {}
+                                };
+                            }
+                        });
                     }
                 },
             )
